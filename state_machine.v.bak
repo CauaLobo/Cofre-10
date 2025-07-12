@@ -1,0 +1,74 @@
+// Módulo da Máquina de Estados
+module state_machine (
+    input wire clk, reset,
+    input wire A, B,
+    input wire [3:0] senha,
+    input wire SAF, H,
+    output reg [2:0] estado_atual,
+    output wire SPA, SPN
+);
+
+    localparam AB = 3'b000, AL = 3'b001, PF = 3'b010, FE = 3'b011;
+    localparam E1 = 3'b100, E2 = 3'b101, BL = 3'b110, EM = 3'b111;
+
+    reg [2:0] prox_estado;
+    reg [3:0] senha_armazenada;
+    reg [1:0] tentativas;
+    reg modo_remoto_ativado;
+
+    always @(posedge clk) begin
+        if (reset) begin
+            estado_atual <= AB;
+            senha_armazenada <= 4'b0000;
+            tentativas <= 0;
+            modo_remoto_ativado <= 0;
+        end else begin
+            estado_atual <= prox_estado;
+            
+            if (prox_estado == AL || prox_estado == PF) begin
+                if (B) senha_armazenada <= senha;
+            end
+
+            // Armazena a senha no momento da transição de AB → AL/PF
+            if (estado_atual == AB && B) begin
+                senha_armazenada <= senha;
+            end else if (B && (estado_atual == FE || estado_atual == E1 || estado_atual == E2)) begin
+                 tentativas <= tentativas + 1;
+            end
+
+            if (estado_atual == AB) begin
+                modo_remoto_ativado <= 1'b0;
+            end else if (estado_atual == PF && B) begin
+                modo_remoto_ativado <= SAF;
+            end
+        end
+    end
+
+
+    always @(*) begin
+        prox_estado = estado_atual; 
+        case (estado_atual)
+            AB: if (B) prox_estado = A ? PF : AL;
+            AL, PF: if (B) prox_estado = FE;
+            FE: begin
+                if (B && senha == senha_armazenada && A) prox_estado = AB;
+                else if (B && senha != senha_armazenada) prox_estado = E1;
+                else if (SAF && ~A && modo_remoto_ativado) prox_estado = AB;
+                else if (H) prox_estado = EM;
+            end
+            E1: begin
+                if (B && senha == senha_armazenada) prox_estado = AB;
+                else if (B) prox_estado = E2;
+            end
+            E2: begin
+                if (B && senha == senha_armazenada) prox_estado = AB;
+                else if (B) prox_estado = BL;
+            end
+            BL: if (H) prox_estado = EM;
+            EM: if (B) prox_estado = A ? PF : AL;
+        endcase
+    end
+    
+    assign SPA = (estado_atual == FE || estado_atual == E1 || estado_atual == E2 || estado_atual == BL);
+    assign SPN = SPA;
+endmodule
